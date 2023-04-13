@@ -97,6 +97,7 @@ class FeignClientsRegistrar implements ImportBeanDefinitionRegistrar, ResourceLo
 		String host = null;
 		try {
 			String url;
+            // 若没有设置协议名，那就使用 http://
 			if (!name.startsWith("http://") && !name.startsWith("https://")) {
 				url = "http://" + name;
 			}
@@ -147,7 +148,25 @@ class FeignClientsRegistrar implements ImportBeanDefinitionRegistrar, ResourceLo
 
 	@Override
 	public void registerBeanDefinitions(AnnotationMetadata metadata, BeanDefinitionRegistry registry) {
+        /**
+         * 注册默认配置
+         *
+         * @EnableFeignClients(defaultConfiguration={A.class})
+         * public class Config{}
+         *
+         * 获取 defaultConfiguration 注解值映射成 BeanDefinition 注册到 BeanFactory 中
+         * 		BeanDefinitionBuilder builder = BeanDefinitionBuilder.genericBeanDefinition(FeignClientSpecification.class);
+         * 		builder.addConstructorArgValue("default."+Config.class.getName());
+         * 		builder.addConstructorArgValue(defaultConfiguration);
+         * 		registry.registerBeanDefinition(name + "." + FeignClientSpecification.class.getSimpleName(),
+         * 				builder.getBeanDefinition());
+         *
+         *		Tips: FeignContext 继承 NamedContextFactory, 会依赖 FeignClientSpecification 类型的bean 用来配置要生成的IOC容器。
+         *			  FeignContext 会使用 beanName是 "default." 前缀的 FeignClientSpecification 作为默认项，用来配置要生成的IOC容器
+         *
+         * */
 		registerDefaultConfiguration(metadata, registry);
+        // 注册 FeignClient
 		registerFeignClients(metadata, registry);
 	}
 
@@ -171,34 +190,59 @@ class FeignClientsRegistrar implements ImportBeanDefinitionRegistrar, ResourceLo
 		LinkedHashSet<BeanDefinition> candidateComponents = new LinkedHashSet<>();
 		Map<String, Object> attrs = metadata.getAnnotationAttributes(EnableFeignClients.class.getName());
 		final Class<?>[] clients = attrs == null ? null : (Class<?>[]) attrs.get("clients");
+        // @EnableFeignClients 没有设置 clients 值，那就扫描包下的类得到
 		if (clients == null || clients.length == 0) {
 			ClassPathScanningCandidateComponentProvider scanner = getScanner();
 			scanner.setResourceLoader(this.resourceLoader);
+            // 配置 include 规则，只会收集有 @FeignClient 的类
 			scanner.addIncludeFilter(new AnnotationTypeFilter(FeignClient.class));
+            /**
+             * @EnableFeignClients(value、basePackages、basePackageClasses) 的值作为要扫描的包路径，
+             * 若这三个注解值都没设置，那就是用标注了 @EnableFeignClients 注解所在的类的包作为要扫描的包
+             * */
 			Set<String> basePackages = getBasePackages(metadata);
 			for (String basePackage : basePackages) {
+                // 开始扫描，将扫描的结果存到 candidateComponents
 				candidateComponents.addAll(scanner.findCandidateComponents(basePackage));
 			}
-		}
-		else {
+        } else {
+            // @EnableFeignClients 设置了 clients 值，那就只使用这些值
 			for (Class<?> clazz : clients) {
 				candidateComponents.add(new AnnotatedGenericBeanDefinition(clazz));
 			}
 		}
 
+        // 遍历 candidateComponents 挨个映射成 BeanDefinition 注册到 BeanFactory 中
 		for (BeanDefinition candidateComponent : candidateComponents) {
 			if (candidateComponent instanceof AnnotatedBeanDefinition) {
 				// verify annotated class is an interface
 				AnnotatedBeanDefinition beanDefinition = (AnnotatedBeanDefinition) candidateComponent;
 				AnnotationMetadata annotationMetadata = beanDefinition.getMetadata();
+        		// @FeignClient 标注的类 不是接口就报错
 				Assert.isTrue(annotationMetadata.isInterface(), "@FeignClient can only be specified on an interface");
 
+        		// 拿到注解的属性值
 				Map<String, Object> attributes = annotationMetadata
 						.getAnnotationAttributes(FeignClient.class.getCanonicalName());
 
+        		/**
+        		 * 为空就依次获取属性 contextId -> value -> name  都没设置就报错。
+        		 *
+        		 * 注：这里感觉不合理，应该也要解析占位符的，因为下面的会解析这里不解析 会导致不一致的
+        		 * */
 				String name = getClientName(attributes);
+        		/**
+        		 * 设置了  @FeignClient(configuration={A.class}) 那就映射成 BeanDefinition 注册到 BeanFactory 中
+        		 *
+        		 *		BeanDefinitionBuilder builder = BeanDefinitionBuilder.genericBeanDefinition(FeignClientSpecification.class);
+        		 * 		builder.addConstructorArgValue(name);
+        		 * 		builder.addConstructorArgValue(configuration);
+        		 * 		registry.registerBeanDefinition(name + "." + FeignClientSpecification.class.getSimpleName(),
+        		 * 				builder.getBeanDefinition());
+        		 * */
 				registerClientConfiguration(registry, name, attributes.get("configuration"));
 
+				// 注册 FeignClient
 				registerFeignClient(registry, annotationMetadata, attributes);
 			}
 		}
@@ -206,21 +250,43 @@ class FeignClientsRegistrar implements ImportBeanDefinitionRegistrar, ResourceLo
 
 	private void registerFeignClient(BeanDefinitionRegistry registry, AnnotationMetadata annotationMetadata,
 			Map<String, Object> attributes) {
+        // 拿到标注了注解的类名
 		String className = annotationMetadata.getClassName();
 		Class clazz = ClassUtils.resolveClassName(className, null);
 		ConfigurableBeanFactory beanFactory = registry instanceof ConfigurableBeanFactory
 				? (ConfigurableBeanFactory) registry : null;
+        /**
+         * 获取属性值，值为空就依次获取: contextId -> name -> value
+         * 最后使用 environment.resolvePlaceholders(value) 解析占位符，也就是说这些注解值是支持使用 ${}、#{} 的
+         * 如果都没有设置，那么 contextId 就是空字符串
+         * */
 		String contextId = getContextId(beanFactory, attributes);
+        /**
+         * 同上，只不过获取的是 name -> value
+         * */
 		String name = getName(attributes);
+        // new 一个 FeignClientFactoryBean
 		FeignClientFactoryBean factoryBean = new FeignClientFactoryBean();
 		factoryBean.setBeanFactory(beanFactory);
 		factoryBean.setName(name);
 		factoryBean.setContextId(contextId);
 		factoryBean.setType(clazz);
+		// 根据 属性 feign.client.refresh-enabled 设置
 		factoryBean.setRefreshableClient(isClientRefreshEnabled());
+		/**
+		 * 设置 Supplier , 也就是实例化会回调 Supplier 得到实例
+		 *
+		 * Tips：因为每次实例化bean都会重新设置 url、path 的值且支持使用占位符，会根据属性文件配置的值进行替换，所以我们可以
+		 * 		将 bean 设置成 refresh 作用域的，然后就能实现 url、path 的动态更新
+		 *
+		 * 		可以通过设置属性让bean变成refresh作用域的 spring.cloud.refresh.ExtraRefreshable=XxFeignClient
+		 * */
 		BeanDefinitionBuilder definition = BeanDefinitionBuilder.genericBeanDefinition(clazz, () -> {
+        	// 根据 @FeignClient(url="")的值来设置，会解析占位符，还会补全http://
 			factoryBean.setUrl(getUrl(beanFactory, attributes));
+        	// 获取 @FeignClient(path="")的值来设置,会解析占位符, 会补上前缀/,移除后缀/
 			factoryBean.setPath(getPath(beanFactory, attributes));
+        	// 剩下的就是简单读取值然后设置给factoryBean
 			factoryBean.setDecode404(Boolean.parseBoolean(String.valueOf(attributes.get("decode404"))));
 			Object fallback = attributes.get("fallback");
 			if (fallback != null) {
@@ -235,7 +301,8 @@ class FeignClientsRegistrar implements ImportBeanDefinitionRegistrar, ResourceLo
 			return factoryBean.getObject();
 		});
 		definition.setAutowireMode(AbstractBeanDefinition.AUTOWIRE_BY_TYPE);
-		definition.setLazyInit(true);
+        definition.setLazyInit(true); // 懒加载的
+        // 校验  fallback、fallbackFactory 的值不能是接口
 		validate(attributes);
 
 		AbstractBeanDefinition beanDefinition = definition.getBeanDefinition();
@@ -247,14 +314,22 @@ class FeignClientsRegistrar implements ImportBeanDefinitionRegistrar, ResourceLo
 
 		beanDefinition.setPrimary(primary);
 
+		// 作为别名
 		String[] qualifiers = getQualifiers(attributes);
 		if (ObjectUtils.isEmpty(qualifiers)) {
 			qualifiers = new String[] { contextId + "FeignClient" };
 		}
 
 		BeanDefinitionHolder holder = new BeanDefinitionHolder(beanDefinition, className, qualifiers);
+		// 注册到 BeanFactory 中
 		BeanDefinitionReaderUtils.registerBeanDefinition(holder, registry);
 
+		/**
+		 * 如果 feign.client.refresh-enabled 是true那就注册 OptionsFactoryBean 到容器中
+		 * 而且是 refresh 作用域的
+		 *
+		 * 当 FeignClientFactoryBean.getObject() 时会拿到 OptionsFactoryBean 用来配置 Feign.Builder
+		 * */
 		registerOptionsBeanDefinition(registry, contextId);
 	}
 
@@ -326,7 +401,9 @@ class FeignClientsRegistrar implements ImportBeanDefinitionRegistrar, ResourceLo
 			@Override
 			protected boolean isCandidateComponent(AnnotatedBeanDefinition beanDefinition) {
 				boolean isCandidate = false;
+				// 是独立的(也就是说 不是内部类)
 				if (beanDefinition.getMetadata().isIndependent()) {
+        			// 不是注解
 					if (!beanDefinition.getMetadata().isAnnotation()) {
 						isCandidate = true;
 					}

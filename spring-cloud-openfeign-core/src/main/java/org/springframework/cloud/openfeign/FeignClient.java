@@ -42,6 +42,7 @@ import org.springframework.core.annotation.AliasFor;
 public @interface FeignClient {
 
 	/**
+	 * 服务名。支持占位符解析
 	 * The name of the service with optional protocol prefix. Synonym for {@link #name()
 	 * name}. A name must be specified for all clients, whether or not a url is provided.
 	 * Can be specified as property key, eg: ${propertyKey}.
@@ -51,6 +52,7 @@ public @interface FeignClient {
 	String value() default "";
 
 	/**
+	 * FeignClient Context 的ID，没指定会使用 name 或者 value 的值。支持占位符解析
 	 * This will be used as the bean name instead of name if present, but will not be used
 	 * as a service id.
 	 * @return bean name instead of name if present
@@ -58,6 +60,7 @@ public @interface FeignClient {
 	String contextId() default "";
 
 	/**
+	 * 服务名。支持占位符解析
 	 * @return The service id with optional protocol prefix. Synonym for {@link #value()
 	 * value}.
 	 */
@@ -65,6 +68,7 @@ public @interface FeignClient {
 	String name() default "";
 
 	/**
+	 * 别名
 	 * @return the <code>@Qualifier</code> value for the feign client.
 	 * @deprecated in favour of {@link #qualifiers()}.
 	 *
@@ -89,6 +93,7 @@ public @interface FeignClient {
 	String[] qualifiers() default {};
 
 	/**
+	 * 若指定这个值，那就不会使用 name，也就不会变成负载均衡请求了。支持占位符解析
 	 * @return an absolute URL or resolvable hostname (the protocol is optional).
 	 */
 	String url() default "";
@@ -99,6 +104,7 @@ public @interface FeignClient {
 	boolean decode404() default false;
 
 	/**
+	 * 给 FeignClient Context 设置默认配置类
 	 * A custom configuration class for the feign client. Can contain override
 	 * <code>@Bean</code> definition for the pieces that make up the client, for instance
 	 * {@link feign.codec.Decoder}, {@link feign.codec.Encoder}, {@link feign.Contract}.
@@ -109,6 +115,10 @@ public @interface FeignClient {
 	Class<?>[] configuration() default {};
 
 	/**
+	 * 使用 {@link FeignCircuitBreaker.Builder} 构造的 FeignClient 才会用到这个属性，
+	 * 是用来给 CircuitBreaker 使用的，用于在执行HTTP请求时出错后 的兜底策略。
+	 *
+	 * 需要注册到容器中才行
 	 * Fallback class for the specified Feign client interface. The fallback class must
 	 * implement the interface annotated by this annotation and be a valid spring bean.
 	 * @return fallback class for the specified Feign client interface
@@ -116,6 +126,10 @@ public @interface FeignClient {
 	Class<?> fallback() default void.class;
 
 	/**
+	 * 和 {@link FeignClient#fallback()} 的用法类似，只不过这个是用来创建 fallback的。
+	 * 如果指定了 fallback ，那么这个属性就没用了。
+	 *
+	 * 需要注册到容器中才行
 	 * Define a fallback factory for the specified Feign client interface. The fallback
 	 * factory must produce instances of fallback classes that implement the interface
 	 * annotated by {@link FeignClient}. The fallback factory must be a valid spring bean.
@@ -126,11 +140,13 @@ public @interface FeignClient {
 	Class<?> fallbackFactory() default void.class;
 
 	/**
+	 * 访问路径是 url + path 。支持占位符解析
 	 * @return path prefix to be used by all method-level mappings.
 	 */
 	String path() default "";
 
 	/**
+	 * bean是否是 @Primary 的
 	 * @return whether to mark the feign proxy as a primary bean. Defaults to true.
 	 */
 	boolean primary() default true;

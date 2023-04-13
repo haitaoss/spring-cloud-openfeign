@@ -97,12 +97,21 @@ public class FeignClientsConfiguration {
 	@Autowired(required = false)
 	private FeignEncoderProperties encoderProperties;
 
+	/**
+	 * 依赖IOC容器配置的 List<HttpMessageConverter> ，其作用是将 执行 FeignClient 接口的响应体 转成 方法的参数类型
+	 * @return
+	 */
 	@Bean
 	@ConditionalOnMissingBean
 	public Decoder feignDecoder(ObjectProvider<HttpMessageConverterCustomizer> customizers) {
 		return new OptionalDecoder(new ResponseEntityDecoder(new SpringDecoder(messageConverters, customizers)));
 	}
 
+	/**
+	 * 依赖IOC容器配置的 List<HttpMessageConverter> ,其作用是将 FeignClient 接口的参数 设置到请求体中
+	 * @param formWriterProvider
+	 * @return
+	 */
 	@Bean
 	@ConditionalOnMissingBean
 	@ConditionalOnMissingClass("org.springframework.data.domain.Pageable")
@@ -140,6 +149,12 @@ public class FeignClientsConfiguration {
 		return queryMapEncoder;
 	}
 
+	/**
+	 * 扩展 FeignClient 接口 支持的特殊注解，然后再执行接口方法时 将特殊注解标注的内容 映射到Request对象中，
+	 * 比如设置 请求头、请求路径、查询参数、请求体 等等
+	 * @param feignConversionService
+	 * @return
+	 */
 	@Bean
 	@ConditionalOnMissingBean
 	public Contract feignContract(ConversionService feignConversionService) {
@@ -203,6 +218,12 @@ public class FeignClientsConfiguration {
 	@Conditional(FeignCircuitBreakerDisabledConditions.class)
 	protected static class DefaultFeignBuilderConfiguration {
 
+		/**
+		 * 设置成 prototype 的，因为每一个 @FeignClient 再实例化时，都会获取到 Feign.Builder 进行配置
+		 *
+		 * @param retryer
+		 * @return
+		 */
 		@Bean
 		@Scope("prototype")
 		@ConditionalOnMissingBean
@@ -224,6 +245,10 @@ public class FeignClientsConfiguration {
 			return Feign.builder().retryer(retryer);
 		}
 
+		/**
+		 * 生成 FeignClient 的 Builder 对象，FeignCircuitBreaker OpenFeign 定义的，用来使用 FeignCircuitBreaker 来执行 FeignClient 接口的方法
+		 * @return
+		 */
 		@Bean
 		@Scope("prototype")
 		@ConditionalOnMissingBean

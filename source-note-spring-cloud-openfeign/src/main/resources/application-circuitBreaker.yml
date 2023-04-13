@@ -1,0 +1,5 @@
+feign:
+  circuitbreaker:
+    # 使委托给断路器来执行 FeignClient 的接口方法
+    enabled: true
+    fast-fail: true

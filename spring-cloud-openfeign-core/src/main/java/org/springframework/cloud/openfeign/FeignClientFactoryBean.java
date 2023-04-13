@@ -131,7 +131,15 @@ public class FeignClientFactoryBean
 				.decoder(get(context, Decoder.class))
 				.contract(get(context, Contract.class));
 		// @formatter:on
-
+        /**
+         * 1. 会从容器中获取 FeignClientConfigurer 根据方法的值 {@link FeignClientConfigurer#inheritParentConfiguration()} 决定是否应该继承父上下文
+         * 2. 根据 contextId 从 FeignContext 获取相关的bean设置给 Feign.Builder
+         * 3. 根据 contextId 从 FeignClientProperties 中拿到 FeignClientConfiguration ，将相关内容设置给 Feign.Builder
+         *
+         * 注：
+         *   - 2,3 的先后顺序很重要，有些相同的内容会被覆盖。可以设置属性来决定 feign.client.defaultToProperties=true
+         *   - 会设置这些内容：Logger.Level、Retryer、ErrorDecoder、FeignErrorDecoderFactory、Options、RequestInterceptor、QueryMapEncoder、Contract、Encoder、Decoder、ExceptionPropagationPolicy、Capability
+         * */
 		configureFeign(context, builder);
 
 		return builder;
@@ -152,12 +160,21 @@ public class FeignClientFactoryBean
 		FeignClientProperties properties = beanFactory != null ? beanFactory.getBean(FeignClientProperties.class)
 				: applicationContext.getBean(FeignClientProperties.class);
 
+        // 会尝试从父容器中获取
 		FeignClientConfigurer feignClientConfigurer = getOptional(context, FeignClientConfigurer.class);
+		// 设置 inheritParentContext 属性
 		setInheritParentContext(feignClientConfigurer.inheritParentConfiguration());
 
+		/**
+		 * 有 FeignClientProperties 且继承父上下文(默认是true)
+		 *
+		 * inheritParentContext 为 true 那么获取bean时，会先找当前容器找不到会从父容器中找
+		 * */
 		if (properties != null && inheritParentContext) {
 			if (properties.isDefaultToProperties()) {
+				// 根据 contextId 从 context 中获取相应的bean用来配置 builder
 				configureUsingConfiguration(context, builder);
+				// 属性文件配置的 FeignClientConfiguration 来对 builder 进行配置
 				configureUsingProperties(properties.getConfig().get(properties.getDefaultConfig()), builder);
 				configureUsingProperties(properties.getConfig().get(contextId), builder);
 			}
@@ -251,6 +268,7 @@ public class FeignClientFactoryBean
 		}
 
 		if (config.getRetryer() != null) {
+			// 尝试从容器中获取 clazz 类型的bean，获取不到就简单实例化出来
 			Retryer retryer = getOrInstantiate(config.getRetryer());
 			builder.retryer(retryer);
 		}
@@ -331,6 +349,12 @@ public class FeignClientFactoryBean
 		}
 	}
 
+	/**
+	 * 尝试从容器中获取 clazz 类型的bean，获取不到就简单实例化出来
+	 * @param tClass
+	 * @return
+	 * @param <T>
+	 */
 	private <T> T getOrInstantiate(Class<T> tClass) {
 		try {
 			return beanFactory != null ? beanFactory.getBean(tClass) : applicationContext.getBean(tClass);
@@ -408,10 +432,25 @@ public class FeignClientFactoryBean
 	 * information
 	 */
 	<T> T getTarget() {
+		// 从容器中获取 FeignContext
 		FeignContext context = beanFactory != null ? beanFactory.getBean(FeignContext.class)
 				: applicationContext.getBean(FeignContext.class);
+
+		/**
+		 * 1. 根据 contextId 从 FeignContext 中获取 Feign.Builder
+		 * 2. 根据 contextId 从 FeignContext 中获取 FeignLoggerFactory、Encoder、Decoder、Contract... 设置给 Feign.Builder
+		 * 3. 可以设置 feign.client.config.contextId.xx 属性 和使用 FeignBuilderCustomizer 用来对 Feign.Builder 进行配置
+		 * 		会设置很多东西：Logger.Level、Retryer、ErrorDecoder、FeignErrorDecoderFactory、Options、RequestInterceptor、QueryMapEncoder、Contract、Encoder、Decoder、ExceptionPropagationPolicy
+		 *
+		 * 注：FeignContext 是 NamedContextFactory 不同的 name 会有单独的IOC容器，IOC容器默认会加载的配置类是 FeignClientsConfiguration
+		 * */
 		Feign.Builder builder = feign(context);
 
+		/**
+		 * url 没有值，那就使用 name + path 拼接成 url，然后构造出 负载均衡的实例对象
+		 *
+		 * 注：是不是负载均衡的其实是看的 Client
+		 * */
 		if (!StringUtils.hasText(url)) {
 
 			if (LOG.isInfoEnabled()) {
@@ -424,14 +463,21 @@ public class FeignClientFactoryBean
 				url = name;
 			}
 			url += cleanPath();
+			// 从容器中获取 Targeter 实例，执行接口方法得到 type 的实现类
 			return (T) loadBalance(builder, context, new HardCodedTarget<>(type, name, url));
 		}
+		// 补上协议名
 		if (StringUtils.hasText(url) && !url.startsWith("http")) {
 			url = "http://" + url;
 		}
+		// 拼接上 path
 		String url = this.url + cleanPath();
+		// 从容器中获取 Client 实例(会从父容器中找)
 		Client client = getOptional(context, Client.class);
 		if (client != null) {
+			/**
+			 * 因为提供了Url所以不需要负载均衡的Client，所以这里解构拿到 非负载均衡的Client
+			 * */
 			if (client instanceof FeignBlockingLoadBalancerClient) {
 				// not load balancing because we have a url,
 				// but Spring Cloud LoadBalancer is on the classpath, so unwrap
@@ -444,10 +490,16 @@ public class FeignClientFactoryBean
 			}
 			builder.client(client);
 		}
-
+		/**
+		 * 根据 contextId 从 FeignContext 获取 FeignBuilderCustomizer 用来加工 builder
+		 * */
 		applyBuildCustomizers(context, builder);
 
+		// 从容器中获取 Targeter 实例
 		Targeter targeter = get(context, Targeter.class);
+		/**
+		 * 执行方法得到 type 的实现类
+		 * */
 		return (T) targeter.target(this, builder, context, new HardCodedTarget<>(type, name, url));
 	}
 

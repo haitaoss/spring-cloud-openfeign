@@ -95,14 +95,28 @@ class FeignCircuitBreakerInvocationHandler implements InvocationHandler {
 			return toString();
 		}
 
+		// 可以通过自定义 circuitBreakerNameResolver 来生成 circuitName 的名字
 		String circuitName = circuitBreakerNameResolver.resolveCircuitBreakerName(feignClientName, target, method);
+		// 通过 CircuitBreakerFactory 得到 CircuitBreaker 实例
 		CircuitBreaker circuitBreaker = circuitBreakerGroupEnabled ? factory.create(circuitName, feignClientName)
 				: factory.create(circuitName);
+		// 定义方法的执行
 		Supplier<Object> supplier = asSupplier(method, args);
+		/**
+		 * 存在 nullableFallbackFactory 就使用
+		 *
+		 * 比如这两种情况 nullableFallbackFactory 才会有值
+		 * 	@FeignClient(fallback=A.class)
+		 * 	@FeignClient(fallbackFactory=A.class)
+		 * 	@FeignClient(fallback=A.class, fallbackFactory=A.class) // 两个都有的情况 只会使用 fallback
+		 * */
 		if (this.nullableFallbackFactory != null) {
+			// 使用 nullableFallbackFactory 构造出 fallbackFunction
 			Function<Throwable, Object> fallbackFunction = throwable -> {
+				// 通过 nullableFallbackFactory 得到 fallback
 				Object fallback = this.nullableFallbackFactory.create(throwable);
 				try {
+					// 使用 fallback 执行当前出错的方法
 					return this.fallbackMethodMap.get(method).invoke(fallback, args);
 				}
 				catch (Exception exception) {
@@ -110,8 +124,10 @@ class FeignCircuitBreakerInvocationHandler implements InvocationHandler {
 				}
 				return null;
 			};
+			// 使用 circuitBreaker 执行方法
 			return circuitBreaker.run(supplier, fallbackFunction);
 		}
+		// 使用 circuitBreaker 执行方法
 		return circuitBreaker.run(supplier);
 	}
 

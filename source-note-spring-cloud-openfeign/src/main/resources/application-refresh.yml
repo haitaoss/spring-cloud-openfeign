@@ -1,0 +1,4 @@
+spring:
+  cloud:
+    refresh:
+      ExtraRefreshable: cn.haitaoss.feign.StoreClient

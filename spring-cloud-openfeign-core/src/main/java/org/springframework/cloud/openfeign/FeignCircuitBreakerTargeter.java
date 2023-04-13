@@ -41,17 +41,30 @@ class FeignCircuitBreakerTargeter implements Targeter {
 	@Override
 	public <T> T target(FeignClientFactoryBean factory, Feign.Builder feign, FeignContext context,
 			Target.HardCodedTarget<T> target) {
+		// 不是 FeignCircuitBreaker 类型的就不做处理
 		if (!(feign instanceof FeignCircuitBreaker.Builder)) {
 			return feign.target(target);
 		}
 		FeignCircuitBreaker.Builder builder = (FeignCircuitBreaker.Builder) feign;
 		String name = !StringUtils.hasText(factory.getContextId()) ? factory.getName() : factory.getContextId();
+		/**
+		 * 前置知识：Feign 其实是通过JDK动态代理 为接口创建出代理对象，所以要想拦截方法的执行只需要配置 InvocationHandler 即可。
+		 *
+		 * 下面的几行代码的最终目都是设置 FeignCircuitBreakerInvocationHandler 作为代理对象的 InvocationHandler，
+		 * 所以关键还得看 FeignCircuitBreakerInvocationHandler
+		 *
+		 * {@link FeignCircuitBreakerInvocationHandler#invoke(Object, Method, Object[])}
+		 * 		大致流程是方法的执行交给 CircuitBreaker 执行 {@link CircuitBreaker#run(Supplier, Function)}
+		 * 		CircuitBreaker 可以拿到 fallback 或者 fallbackFactory。可以决定什么时候回调 fallback 的逻辑
+		 * */
 		Class<?> fallback = factory.getFallback();
 		if (fallback != void.class) {
+			// 存在 fallback 的情况
 			return targetWithFallback(name, context, target, builder, fallback);
 		}
 		Class<?> fallbackFactory = factory.getFallbackFactory();
 		if (fallbackFactory != void.class) {
+			// 存在 fallbackFactory 的情况
 			return targetWithFallbackFactory(name, context, target, builder, fallbackFactory);
 		}
 		return builder(name, builder).target(target);

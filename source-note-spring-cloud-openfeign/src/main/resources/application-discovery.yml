@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: main
+  cloud:
+    discovery:
+      client:
+        simple:
+          instances:
+            store:
+              - uri: http://localhost:8081
+              - uri: http://localhost:8082
+            s2:
+              - uri: http://localhost:8082

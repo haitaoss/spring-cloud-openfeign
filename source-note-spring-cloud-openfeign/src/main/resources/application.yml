@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: main
+  profiles:
+    include: actuator,discovery,feign,refresh,circuitBreaker
+server:
+  servlet:
+    context-path: /openFeign
+#logging:
+#  level:
+#    root: debug

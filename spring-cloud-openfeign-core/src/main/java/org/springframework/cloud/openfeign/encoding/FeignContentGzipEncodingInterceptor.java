@@ -43,7 +43,16 @@ public class FeignContentGzipEncodingInterceptor extends BaseRequestInterceptor 
 	@Override
 	public void apply(RequestTemplate template) {
 
+		/**
+		 * 需要压缩
+		 *
+		 * 1. Content-Type 是属性 feign.compression.request.mimeTypes 包含的值
+		 * 2. Content-Length 大于 属性 feign.compression.request.minRequestSize 的值
+		 *
+		 * 满足这两点才需要增加请求头
+		 * */
 		if (requiresCompression(template)) {
+			// 增加请求头 Content-Encoding=gzip,deflate
 			addHeader(template, HttpEncoding.CONTENT_ENCODING_HEADER, HttpEncoding.GZIP_ENCODING,
 					HttpEncoding.DEFLATE_ENCODING);
 		}

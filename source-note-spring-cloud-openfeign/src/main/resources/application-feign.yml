@@ -1,0 +1,61 @@
+FeignClient:
+  StoreClient:
+    #    contextId:
+    name: s1
+    #    url: http://s2
+    path: ${server.servlet.context-path}
+
+
+feign:
+  encoder:
+    # 是否从响应头 Content-Type 获取响应体的编码，会使用这个编码对响应体解码成字符串（默认是UTF-8）
+    charset-from-content-type: true
+  compression:
+    # 设置请求头 Accept-Encoding=gzip,deflate 用于告诉服务器 客户端支持 gzip,deflate 压缩
+    response:
+      enabled: true
+    request:
+      enabled: true
+      # FeignClient 执行HTTP请求时，Content-Type 、Content-Length 满足这两个条件，就设置请求头 Content-Encoding=gzip,deflate。
+      # 设置了请求头后 在发送前会对请求体进行压缩
+      mimeTypes:
+        - "text/xml"
+        - "application/xml"
+        - "application/json"
+      minRequestSize: 100
+
+  client:
+    refresh-enabled: true
+    # true 标识下面配置的内容会覆盖通过 FeignContext 中的内容
+    defaultToProperties: true
+    # 这个是默认的config名字，先应用这个的配置，再应用单独 store 的配置
+    defaultConfig: default
+    decodeSlash: true
+    config:
+      default:
+        defaultRequestHeaders:
+          header1: default-header
+      # 指定 store 这个 FeignClient 的参数，
+      store:
+        loggerLevel: full
+        connectTimeout: 5000
+        readTimeout: 5000
+        retryer: com.example.SimpleRetryer
+        errorDecoder: com.example.SimpleErrorDecoder
+        requestInterceptors:
+          - cn.haitaoss.config.FeignConfig.MyRequestInterceptor
+        defaultRequestHeaders:
+          header: headerValue
+        defaultQueryParameters:
+          query: queryValue
+        decode404: false
+        encoder: com.example.SimpleEncoder
+        decoder: com.example.SimpleDecoder
+        contract: com.example.SimpleContract
+        exceptionPropagationPolicy: NONE
+        capabilities:
+          - com.example.FooCapability
+          - com.example.BarCapability
+        queryMapEncoder: com.example.SimpleQueryMapEncoder
+        metrics:
+          enabled: false
